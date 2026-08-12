@@ -2,6 +2,154 @@
 
 Deployable multi-module app: **job-api**, **job-worker**, shared **job-common**.
 
+## Architecture
+
+```mermaid
+flowchart TB
+  subgraph Clients
+    UI["Web UI<br/>GET /"]
+    BROWSER["Browser / curl / REST client"]
+  end
+
+  subgraph JobAPI["job-api :8080"]
+    subgraph Static["Static / UI"]
+      HOME["GET /<br/>Form + live dashboard"]
+      CSS["GET /css/app.css"]
+      JS["GET /js/app.js"]
+    end
+
+    subgraph JobAPIs["Job REST + SSE"]
+      CREATE["POST /api/jobs<br/>Create job body: name, details<br/>201 or 409 duplicate name"]
+      LIST["GET /api/jobs<br/>List jobs ?status=PENDING|RUNNING|..."]
+      GETONE["GET /api/jobs/{id}<br/>Get job by id"]
+      STREAM["GET /api/jobs/stream<br/>SSE live updates ?status="]
+    end
+
+    subgraph SupportAPIs["Support"]
+      UICONFIG["GET /api/ui-config<br/>jobsBasePath, jobsStreamPath"]
+      HEALTH["GET /actuator/health"]
+      INFO["GET /actuator/info"]
+      H2["GET /h2-console<br/>local only"]
+    end
+
+    CTRL["JobController"]
+    UISVC["UiConfigController"]
+    SSE_SVC["JobSseService"]
+    JOB_SVC["JobService"]
+  end
+
+  subgraph JobWorker["job-worker — no public HTTP APIs"]
+    DISP["JobDispatcher — pool 5"]
+    WATCH["StuckJobWatchdog — RUNNING > 1h"]
+    CLAIM["Claim SKIP LOCKED"]
+    EXEC["Execute / retry / DLQ"]
+  end
+
+  subgraph DB["Shared DB"]
+    JOBS[(jobs)]
+    DLQ[(dead_letter_jobs)]
+  end
+
+  UI --> HOME
+  UI --> CSS
+  UI --> JS
+  UI -->|load paths| UICONFIG
+  UI -->|submit| CREATE
+  UI -->|EventSource| STREAM
+
+  BROWSER --> CREATE
+  BROWSER --> LIST
+  BROWSER --> GETONE
+  BROWSER --> STREAM
+  BROWSER --> UICONFIG
+  BROWSER --> HEALTH
+
+  CREATE --> CTRL --> JOB_SVC --> JOBS
+  LIST --> CTRL --> JOB_SVC
+  GETONE --> CTRL --> JOB_SVC
+  STREAM --> CTRL --> SSE_SVC --> JOBS
+  UICONFIG --> UISVC
+  CREATE -.->|publish snapshot| SSE_SVC
+
+  DISP --> CLAIM --> JOBS
+  DISP --> EXEC --> JOBS
+  EXEC -->|DEAD| DLQ
+  WATCH --> JOBS
+  WATCH -->|timeout DEAD| DLQ
+```
+
+### Job lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> PENDING: POST /api/jobs
+  PENDING --> RUNNING: worker claims job
+  RUNNING --> COMPLETED: success
+  RUNNING --> PENDING: fail, attempts < 3
+  RUNNING --> DEAD: fail, attempts = 3
+  RUNNING --> DEAD: stuck > 1 hour
+  DEAD --> DLQ: row in dead_letter_jobs
+  COMPLETED --> [*]
+  DEAD --> [*]
+```
+
+### Request flow
+
+```mermaid
+sequenceDiagram
+  participant UI as Browser UI
+  participant API as job-api
+  participant DB as jobs DB
+  participant W as job-worker
+
+  UI->>API: GET /api/ui-config
+  API-->>UI: paths
+
+  UI->>API: GET /api/jobs/stream
+  API-->>UI: SSE connected + snapshot
+
+  UI->>API: POST /api/jobs
+  API->>DB: INSERT PENDING
+  API-->>UI: 201 JobResponse
+  API-->>UI: SSE snapshot
+
+  W->>DB: claim PENDING → RUNNING
+  API-->>UI: SSE snapshot RUNNING
+  W->>DB: COMPLETED / retry PENDING / DEAD+DLQ
+  API-->>UI: SSE snapshot
+
+  UI->>API: GET /api/jobs?status=COMPLETED
+  API-->>UI: filtered list
+  UI->>API: GET /api/jobs/{id}
+  API-->>UI: job detail
+```
+
+### API catalog (job-api)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/` | Form + dashboard UI |
+| `GET` | `/css/app.css` | UI styles |
+| `GET` | `/js/app.js` | UI logic |
+| `GET` | `/api/ui-config` | Frontend path config |
+| `POST` | `/api/jobs` | Create job `{ "name", "details" }` |
+| `GET` | `/api/jobs` | List all jobs (optional `?status=`) |
+| `GET` | `/api/jobs/{id}` | Get one job |
+| `GET` | `/api/jobs/stream` | SSE live job snapshots (optional `?status=`) |
+| `GET` | `/actuator/health` | Health check |
+| `GET` | `/actuator/info` | App info |
+| `GET` | `/h2-console` | H2 console (local profile only) |
+
+**job-worker** exposes no public HTTP APIs (background processor only).
+
+### Modules
+
+| Module | Role |
+|--------|------|
+| `job-api` | Create/list/status APIs, SSE live dashboard, UI |
+| `job-worker` | Parallel processing, retries, timeout → DLQ |
+| `job-common` | Shared `Job`, status, repositories |
+
 ## Profiles
 
 | Profile | Config files | Use |
@@ -79,8 +227,9 @@ Also start **job-worker** so statuses move `PENDING → RUNNING → COMPLETED`.
 - When one finishes, the next `PENDING` job is claimed immediately
 - Retries up to **3** attempts (`worker.max-attempts`)
 - After max attempts → status `DEAD` + row in `dead_letter_jobs`
+- If a job stays `RUNNING` longer than **1 hour** (`worker.running-timeout-ms`) → `DEAD` + DLQ immediately (no retries)
 
-Force retry/DLQ in local tests by putting `forceFail` in details JSON path, or use payload containing `"forceFail":true`.
+Force retry/DLQ in local tests by putting `forceFail` in details, or use payload containing `forceFail`.
 
 ## API examples (default paths)
 

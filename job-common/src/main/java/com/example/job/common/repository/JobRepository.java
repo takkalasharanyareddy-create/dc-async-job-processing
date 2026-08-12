@@ -19,6 +19,8 @@ public interface JobRepository extends JpaRepository<Job, UUID> {
 
     boolean existsByNameIgnoreCase(String name);
 
+    List<Job> findByStatusAndStartedAtBefore(JobStatus status, Instant startedAtBefore);
+
     @Query(value = """
             SELECT * FROM jobs
             WHERE status = 'PENDING'

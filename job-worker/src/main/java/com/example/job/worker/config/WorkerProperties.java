@@ -9,6 +9,10 @@ public class WorkerProperties {
     private int maxAttempts = 3;
     private long pollIntervalMs = 500;
     private long processingDelayMs = 3000;
+    /** Max time a job may stay RUNNING before DEAD + DLQ (default 1 hour). */
+    private long runningTimeoutMs = 3_600_000L;
+    /** How often to scan for stuck RUNNING jobs. */
+    private long timeoutCheckIntervalMs = 60_000L;
 
     public int getPoolSize() {
         return poolSize;
@@ -40,5 +44,21 @@ public class WorkerProperties {
 
     public void setProcessingDelayMs(long processingDelayMs) {
         this.processingDelayMs = processingDelayMs;
+    }
+
+    public long getRunningTimeoutMs() {
+        return runningTimeoutMs;
+    }
+
+    public void setRunningTimeoutMs(long runningTimeoutMs) {
+        this.runningTimeoutMs = runningTimeoutMs;
+    }
+
+    public long getTimeoutCheckIntervalMs() {
+        return timeoutCheckIntervalMs;
+    }
+
+    public void setTimeoutCheckIntervalMs(long timeoutCheckIntervalMs) {
+        this.timeoutCheckIntervalMs = timeoutCheckIntervalMs;
     }
 }
