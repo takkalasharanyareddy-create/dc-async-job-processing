@@ -1,0 +1,49 @@
+@host = http://localhost:8080
+@jobsBasePath = /api/jobs
+
+### UI config (paths for frontend)
+GET {{host}}/api/ui-config
+
+### Create job
+POST {{host}}{{jobsBasePath}}
+Content-Type: application/json
+
+{
+  "name": "Invoice export",
+  "details": "Export invoices for March"
+}
+
+### Create job with duplicate name (expect 409)
+POST {{host}}{{jobsBasePath}}
+Content-Type: application/json
+
+{
+  "name": "Invoice export",
+  "details": "Should fail"
+}
+
+### Create job that fails 3 times then goes to DLQ (details contain forceFail)
+POST {{host}}{{jobsBasePath}}
+Content-Type: application/json
+
+{
+  "name": "Failing job",
+  "details": "forceFail this job for DLQ demo"
+}
+
+### Get job by id (replace UUID)
+GET {{host}}{{jobsBasePath}}/00000000-0000-0000-0000-000000000000
+
+### List all jobs
+GET {{host}}{{jobsBasePath}}
+
+### List pending jobs (server filter)
+GET {{host}}{{jobsBasePath}}?status=PENDING
+
+### SSE live stream (all)
+GET {{host}}{{jobsBasePath}}/stream
+Accept: text/event-stream
+
+### SSE live stream (filtered)
+GET {{host}}{{jobsBasePath}}/stream?status=RUNNING
+Accept: text/event-stream

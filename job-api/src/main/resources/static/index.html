@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Async Jobs</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Async Jobs</p>
+        <h1>Submit work. Watch it live.</h1>
+        <p class="lede">Create a job, then track status updates over SSE as the worker processes it.</p>
+      </div>
+      <div class="live-pill" id="livePill" data-state="loading" aria-live="polite">
+        <span class="live-dot"></span>
+        <span id="liveLabel">Connecting…</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel" aria-labelledby="form-title">
+        <h2 id="form-title">Submit job</h2>
+        <p class="panel-copy">Name and details are stored with the job and shown on the dashboard.</p>
+
+        <form id="jobForm" novalidate>
+          <label for="jobName">Job name</label>
+          <input id="jobName" name="name" type="text" maxlength="120" required placeholder="e.g. Invoice export" />
+
+          <label for="jobDetails">Job details</label>
+          <textarea id="jobDetails" name="details" rows="5" maxlength="4000" required placeholder="Describe the work to process…"></textarea>
+
+          <div class="form-actions">
+            <button type="submit" id="submitBtn">Create job</button>
+            <p class="form-message" id="formMessage" role="status"></p>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="dashboard-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="dashboard-title">Live dashboard</h2>
+            <p class="panel-copy">Server-filtered stream. Status badges update as the worker progresses.</p>
+          </div>
+          <label class="filter">
+            <span>Status</span>
+            <select id="statusFilter">
+              <option value="">All</option>
+              <option value="PENDING">Pending</option>
+              <option value="RUNNING">Running</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="FAILED">Failed</option>
+              <option value="DEAD">Dead</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="dashboardState" class="state-box" data-state="loading">
+          <p id="stateMessage">Loading jobs…</p>
+        </div>
+
+        <div class="table-wrap" id="tableWrap" hidden>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Details</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/app.js" defer></script>
+</body>
+</html>
