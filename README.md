@@ -2,7 +2,85 @@
 
 Deployable multi-module app: **job-api**, **job-worker**, shared **job-common**.
 
-## Architecture
+## System architecture
+
+Two deployable services share one database. The API accepts jobs and streams status; the worker claims and processes them in parallel.
+
+```mermaid
+flowchart TB
+  subgraph Clients
+    UI["Web UI<br/>index.html + SSE"]
+    API_CLIENT["API clients<br/>curl / dashboard"]
+  end
+
+  subgraph JobAPI["job-api :8080"]
+    CTRL["JobController<br/>POST/GET /api/jobs"]
+    SSE["SSE /api/jobs/stream"]
+    SVC["JobService<br/>unique name validation"]
+    SSE_SVC["JobSseService<br/>poll DB + push snapshots"]
+  end
+
+  subgraph JobWorker["job-worker"]
+    DISP["JobDispatcher<br/>fill up to 5 slots"]
+    POOL["Thread pool<br/>size = 5"]
+    CLAIM["JobClaimService<br/>SKIP LOCKED claim"]
+    EXEC["JobExecutionService<br/>process job"]
+    LIFE["JobLifecycleService<br/>complete / retry / DLQ"]
+    WATCH["StuckJobWatchdog<br/>RUNNING &gt; 1h → DEAD"]
+  end
+
+  subgraph Shared["Shared store"]
+    DB[(DB / H2 or Postgres<br/>jobs table)]
+    DLQ[(dead_letter_jobs)]
+  end
+
+  UI -->|POST create job| CTRL
+  UI -->|EventSource| SSE
+  API_CLIENT --> CTRL
+  CTRL --> SVC
+  SVC -->|INSERT PENDING| DB
+  SSE --> SSE_SVC
+  SSE_SVC -->|read jobs| DB
+  SVC -.->|publish snapshot| SSE_SVC
+
+  DISP -->|claim| CLAIM
+  CLAIM -->|FOR UPDATE SKIP LOCKED| DB
+  DISP -->|submit| POOL
+  POOL --> EXEC
+  EXEC --> LIFE
+  LIFE -->|COMPLETED / PENDING retry| DB
+  LIFE -->|DEAD after 3 fails| DLQ
+  LIFE -->|DEAD| DB
+  WATCH -->|timeout sweep| LIFE
+  WATCH -->|find stuck RUNNING| DB
+```
+
+### Concurrency model
+
+```mermaid
+flowchart LR
+  subgraph Dispatcher
+    A["inFlight &lt; 5?"]
+    B["claim next PENDING"]
+    C["submit to pool"]
+  end
+
+  subgraph Pool["5 worker threads"]
+    T1[Job 1]
+    T2[Job 2]
+    T3[Job 3]
+    T4[Job 4]
+    T5[Job 5]
+  end
+
+  A -->|yes| B
+  B -->|SKIP LOCKED| C
+  C --> Pool
+  T1 -->|done| A
+  T2 -->|done| A
+```
+
+## Architecture with all APIs
 
 ```mermaid
 flowchart TB
